@@ -32,6 +32,9 @@ def matches(content, keyword):
 # ===== EVENT =====
 @bot.event
 async def on_thread_create(thread):
+    print("THREAD DETECTADO")
+    print("Nombre:", thread.name)
+    print("Canal padre:", thread.parent.name, type(thread.parent))
     # Solo foros
     if not isinstance(thread.parent, discord.ForumChannel):
         return
@@ -78,7 +81,9 @@ async def subscribe(ctx, *args):
 
     save_db(db)
 
-    await ctx.send(f"✅ Te suscribiste a: {', '.join(db[user_id])}")
+    await ctx.send(
+      f"✅ {ctx.author.mention} ahora vas a recibir alertas de: **{', '.join(db[user_id])}**"
+    )
 
 @bot.command()
 async def unsubscribe(ctx, *args):
