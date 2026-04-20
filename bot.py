@@ -176,7 +176,8 @@ async def on_message(message):
 # ===== READY =====
 @bot.event
 async def on_ready():
-    await tree.sync(guild=discord.Object(id=GUILD_ID))
+    guild = discord.Object(id=GUILD_ID)
+    await tree.sync(guild=guild)
     print(f"Bot conectado como {bot.user}")
 
 # ===== RUN =====
