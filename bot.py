@@ -72,7 +72,7 @@ class MySubsButton(discord.ui.Button):
         subs = db.get(str(interaction.user.id), [])
 
         await interaction.response.send_message(
-            f"📌 Your keywords: {', '.join(subs) if subs else 'none'}",
+            f"📌 Tus palabras clave: {', '.join(subs) if subs else 'ninguna'}",
             ephemeral=True
         )
 
@@ -90,7 +90,7 @@ class CancelButton(discord.ui.Button):
         # Ensure only the original user can use the button
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message(
-                "You cannot use this button",
+                "No puedes usar este botón",
                 ephemeral=True
             )
 
@@ -103,12 +103,12 @@ class CancelButton(discord.ui.Button):
 
             # Edit original message (better UX)
             await interaction.response.edit_message(
-                content=f"🧹 You removed **{self.keyword}** from your subscriptions",
+                content=f"🧹 Removiste **{self.keyword}** de tus suscripciones",
                 view=None
             )
         else:
             await interaction.response.send_message(
-                "Subscription not found",
+                "Suscripción no encontrada",
                 ephemeral=True
             )
 
@@ -143,7 +143,7 @@ async def on_thread_create(thread):
         # Notify matched users
         if mentions:
             msg = " ".join(mentions)
-            msg += f"\n🔎 Match: {', '.join(matched)}"
+            msg += f"\n🔎 Coincidencia: {', '.join(matched)}"
             await thread.send(msg)
 
     except Exception as e:
@@ -176,12 +176,12 @@ async def subscribe(interaction: discord.Interaction, keyword: str):
     )
 
     await interaction.response.send_message(
-        f"""✅ {interaction.user.mention} you are now subscribed to **{keyword}**
+        f"""✅ {interaction.user.mention} ahora estás suscrito a **{keyword}**
 
-🔔 New matching job posts will be notified automatically.
+🔔 Se te notificará automáticamente cuando haya nuevas ofertas que coincidan.
 
-💡 To browse current offers:
-use the search bar inside the `jobs-feed` forum.
+💡 Para explorar las ofertas actuales:
+usa la barra de búsqueda dentro del foro `jobs-feed`.
 """,
         view=view
     )
@@ -194,7 +194,7 @@ async def unsubscribe(interaction: discord.Interaction, keyword: str):
     db = load_db()
 
     if user_id not in db:
-        return await interaction.response.send_message("No subscriptions found")
+        return await interaction.response.send_message("No se encontraron suscripciones")
 
     keyword = keyword.lower()
 
@@ -204,7 +204,7 @@ async def unsubscribe(interaction: discord.Interaction, keyword: str):
     save_db(db)
 
     await interaction.response.send_message(
-        f"🧹 {interaction.user.mention} removed **{keyword}**"
+        f"🧹 {interaction.user.mention} removiste **{keyword}**"
     )
 
 
@@ -214,7 +214,7 @@ async def mysubs(interaction: discord.Interaction):
     subs = db.get(str(interaction.user.id), [])
 
     await interaction.response.send_message(
-        f"📌 Your keywords: {', '.join(subs) if subs else 'none'}",
+        f"📌 Tus palabras clave: {', '.join(subs) if subs else 'ninguna'}",
         ephemeral=True
     )
 
