@@ -288,10 +288,11 @@ async def on_message(message):
 async def on_ready():
     guild = discord.Object(id=GUILD_ID)
     tree.clear_commands(guild=guild)
+    tree.copy_global_to(guild=guild)
     synced = await tree.sync(guild=guild)
-
-    print(f"Synced {len(synced)} commands")
-    print(f"Bot connected as {bot.user}")
+    
+    print(f"Sincronizados {len(synced)} comandos")
+    print(f"Bot conectado como {bot.user}")
 
 # ===== RUN =====
 bot.run(os.getenv("DISCORD_TOKEN"))
