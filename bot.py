@@ -102,15 +102,16 @@ class MySubsButton(discord.ui.Button):
 
 
 class CancelButton(discord.ui.Button):
-    def __init__(self, user_id, keyword):
+    def __init__(self, user_id, index):
         super().__init__(
-            label="Cancelar",
+            label="Eliminar esta alerta",
             style=discord.ButtonStyle.danger
         )
-        self.user_id = user_id
-        self.keyword = keyword
+        self.user_id = str(user_id)
+        self.index = index  # index of the subscription
 
     async def callback(self, interaction: discord.Interaction):
+        # Security: only the original user can press the button
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message(
                 "No podés usar este botón",
@@ -119,19 +120,32 @@ class CancelButton(discord.ui.Button):
 
         db = load_db()
 
-        if self.user_id in db and self.keyword in db[self.user_id]:
-            db[self.user_id].remove(self.keyword)
-            save_db(db)
-
-            await interaction.response.edit_message(
-                content=f"🧹 Eliminaste **[{', '.join(self.keyword.split())}]**",
-                view=None
-            )
-        else:
-            await interaction.response.send_message(
-                "Suscripción no encontrada",
+        # Check if user has subscriptions
+        if self.user_id not in db or not db[self.user_id]:
+            return await interaction.response.send_message(
+                "No tenés suscripciones",
                 ephemeral=True
             )
+
+        subs = db[self.user_id]
+
+        # Validate index (important)
+        if self.index < 0 or self.index >= len(subs):
+            return await interaction.response.send_message(
+                "Esa alerta ya no existe",
+                ephemeral=True
+            )
+
+        # Remove subscription
+        removed = subs.pop(self.index)
+        save_db(db)
+
+        # Edit original message (clean UX)
+        await interaction.response.edit_message(
+            content=f"🧹 Eliminaste **[{', '.join(removed.split())}]**",
+            view=None
+        )
+
 
 # ===== EVENT =====
 @bot.event
@@ -205,31 +219,30 @@ Usá el buscador del foro `jobs-feed` para ver ofertas actuales.
 
 
 @tree.command(name="unsubscribe", description="Eliminar una alerta por número")
-@app_commands.describe(index="Número de la alerta")
+@app_commands.describe(index="Número de la alerta (ver con /mysubs)")
 async def unsubscribe(interaction: discord.Interaction, index: int):
+    await interaction.response.defer(ephemeral=True)
+
     user_id = str(interaction.user.id)
     db = load_db()
 
     if user_id not in db or not db[user_id]:
-        return await interaction.response.send_message(
-            "No tenés suscripciones",
-            ephemeral=True
+        return await interaction.followup.send(
+            "No tenés suscripciones"
         )
 
     subs = db[user_id]
 
     if index < 1 or index > len(subs):
-        return await interaction.response.send_message(
-            "Número inválido",
-            ephemeral=True
+        return await interaction.followup.send(
+            "Número inválido"
         )
 
     removed = subs.pop(index - 1)
     save_db(db)
 
-    await interaction.response.send_message(
-        f"🧹 Eliminaste **[{', '.join(removed.split())}]**",
-        ephemeral=True
+    await interaction.followup.send(
+        f"🧹 Eliminaste **[{', '.join(removed.split())}]**"
     )
 
 
