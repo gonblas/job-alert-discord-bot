@@ -287,7 +287,7 @@ async def on_message(message):
 @bot.event
 async def on_ready():
     guild = discord.Object(id=GUILD_ID)
-    synced = await tree.sync(guild=guild)
+    synced = await bot.tree.sync(guild=guild)
 
     print(f"Synced {len(synced)} commands")
     print(f"Bot conectado como {bot.user}")
