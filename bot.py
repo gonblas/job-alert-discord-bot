@@ -286,12 +286,14 @@ async def on_message(message):
 # ===== READY =====
 @bot.event
 async def on_ready():
+    tree.clear_commands(guild=None)
+    await tree.sync(guild=None)
     guild = discord.Object(id=GUILD_ID)
     tree.clear_commands(guild=guild)
     tree.copy_global_to(guild=guild)
     synced = await tree.sync(guild=guild)
     
-    print(f"Sincronizados {len(synced)} comandos")
+    print(f"Sincronizados {len(synced)} comandos en el servidor")
     print(f"Bot conectado como {bot.user}")
 
 # ===== RUN =====
