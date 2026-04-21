@@ -41,15 +41,10 @@ SYNONYMS = {
 }
 
 def normalize_word(word):
-    """Normalize a word using synonyms dictionary"""
     return SYNONYMS.get(word, word)
 
 # ===== MATCHING =====
 def matches_query(content, query):
-    """
-    Match ALL words inside a query (AND logic)
-    Applies synonym normalization
-    """
     words = query.lower().split()
     normalized_words = [normalize_word(w) for w in words]
 
@@ -58,7 +53,7 @@ def matches_query(content, query):
         for word in normalized_words
     )
 
-# ===== UI COMPONENTS =====
+# ===== UI =====
 class SearchView(discord.ui.View):
     def __init__(self, guild_id, channel_id, user_id, keyword):
         super().__init__(timeout=120)
@@ -89,8 +84,19 @@ class MySubsButton(discord.ui.Button):
         db = load_db()
         subs = db.get(str(interaction.user.id), [])
 
+        if not subs:
+            return await interaction.response.send_message(
+                "📌 No tenés suscripciones",
+                ephemeral=True
+            )
+
+        formatted = "\n".join(
+            f"{i+1}. [{', '.join(sub.split())}]"
+            for i, sub in enumerate(subs)
+        )
+
         await interaction.response.send_message(
-            f"📌 Tus palabras clave: {', '.join(subs) if subs else 'ninguna'}",
+            f"📌 **Tu lista de alertas es:**\n{formatted}",
             ephemeral=True
         )
 
@@ -107,7 +113,7 @@ class CancelButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message(
-                "No puedes usar este botón",
+                "No podés usar este botón",
                 ephemeral=True
             )
 
@@ -118,7 +124,7 @@ class CancelButton(discord.ui.Button):
             save_db(db)
 
             await interaction.response.edit_message(
-                content=f"🧹 Removiste **{self.keyword}** de tus suscripciones",
+                content=f"🧹 Eliminaste **[{', '.join(self.keyword.split())}]**",
                 view=None
             )
         else:
@@ -127,7 +133,7 @@ class CancelButton(discord.ui.Button):
                 ephemeral=True
             )
 
-# ===== EVENT: NEW THREADS =====
+# ===== EVENT =====
 @bot.event
 async def on_thread_create(thread):
     print("🔥 THREAD DETECTED:", thread.parent.name)
@@ -154,15 +160,15 @@ async def on_thread_create(thread):
 
         if mentions:
             msg = " ".join(mentions)
-            msg += f"\n🔎 Coincidencia: {', '.join(matched)}"
+            msg += f"\n🔎 Coincidencias: {', '.join(matched)}"
             await thread.send(msg)
 
     except Exception as e:
         print("Error:", e)
 
-# ===== SLASH COMMANDS =====
-@tree.command(name="subscribe", description="Subscribe to job alerts")
-@app_commands.describe(keyword="Example: python junior, js ssr")
+# ===== COMMANDS =====
+@tree.command(name="subscribe", description="Suscribite a alertas de trabajo")
+@app_commands.describe(keyword="Ej: python junior, js ssr")
 async def subscribe(interaction: discord.Interaction, keyword: str):
     user_id = str(interaction.user.id)
     db = load_db()
@@ -187,46 +193,64 @@ async def subscribe(interaction: discord.Interaction, keyword: str):
     await interaction.response.send_message(
         f"""✅ {interaction.user.mention} ahora estás suscrito a **{keyword}**
 
-🔔 Se te notificará cuando una oferta contenga **todas** las palabras de esta búsqueda.
+🔔 Vas a recibir alertas cuando una oferta contenga TODAS esas palabras.
 
 💡 Ejemplo:
-Si usás `python jr`, también matcheará con `python junior`.
+`python jr` también matchea con `python junior`
 
-Para explorar las ofertas actuales:
-usa el buscador dentro del foro `jobs-feed`.
+Usá el buscador del foro `jobs-feed` para ver ofertas actuales.
 """,
         view=view
     )
 
 
-@tree.command(name="unsubscribe", description="Remove a subscription")
-@app_commands.describe(keyword="Keyword to remove")
-async def unsubscribe(interaction: discord.Interaction, keyword: str):
+@tree.command(name="unsubscribe", description="Eliminar una alerta por número")
+@app_commands.describe(index="Número de la alerta")
+async def unsubscribe(interaction: discord.Interaction, index: int):
     user_id = str(interaction.user.id)
     db = load_db()
 
-    if user_id not in db:
-        return await interaction.response.send_message("No se encontraron suscripciones")
+    if user_id not in db or not db[user_id]:
+        return await interaction.response.send_message(
+            "No tenés suscripciones",
+            ephemeral=True
+        )
 
-    keyword = keyword.lower()
+    subs = db[user_id]
 
-    if keyword in db[user_id]:
-        db[user_id].remove(keyword)
+    if index < 1 or index > len(subs):
+        return await interaction.response.send_message(
+            "Número inválido",
+            ephemeral=True
+        )
 
+    removed = subs.pop(index - 1)
     save_db(db)
 
     await interaction.response.send_message(
-        f"🧹 {interaction.user.mention} removiste **{keyword}**"
+        f"🧹 Eliminaste **[{', '.join(removed.split())}]**",
+        ephemeral=True
     )
 
 
-@tree.command(name="mysubs", description="Show your subscriptions")
+@tree.command(name="mysubs", description="Ver tus suscripciones")
 async def mysubs(interaction: discord.Interaction):
     db = load_db()
     subs = db.get(str(interaction.user.id), [])
 
+    if not subs:
+        return await interaction.response.send_message(
+            "📌 No tenés suscripciones",
+            ephemeral=True
+        )
+
+    formatted = "\n".join(
+        f"{i+1}. [{', '.join(sub.split())}]"
+        for i, sub in enumerate(subs)
+    )
+
     await interaction.response.send_message(
-        f"📌 Tus palabras clave: {', '.join(subs) if subs else 'ninguna'}",
+        f"📌 **Tu lista de alertas es:**\n{formatted}\n\n❌ Para eliminar: `/unsubscribe <número>`",
         ephemeral=True
     )
 
