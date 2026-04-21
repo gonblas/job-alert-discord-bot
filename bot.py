@@ -70,7 +70,14 @@ class SearchView(discord.ui.View):
         ))
 
         self.add_item(MySubsButton())
-        self.add_item(CancelButton(self.user_id, self.keyword))
+        db = load_db()
+        user_subs = db.get(self.user_id, [])
+
+        try:
+            index = user_subs.index(self.keyword)
+            self.add_item(CancelButton(self.user_id, index))
+        except ValueError:
+            pass
 
 
 class MySubsButton(discord.ui.Button):
