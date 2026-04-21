@@ -31,10 +31,32 @@ def save_db(db):
     with open(DB_FILE, "w") as f:
         json.dump(db, f)
 
+# ===== SYNONYMS =====
+SYNONYMS = {
+    "jr": "junior",
+    "sr": "senior",
+    "ssr": "semi senior",
+    "node": "nodejs",
+    "reactjs": "react",
+}
+
+def normalize_word(word):
+    """Normalize a word using synonyms dictionary"""
+    return SYNONYMS.get(word, word)
+
 # ===== MATCHING =====
-def matches(content, keyword):
-    """Check exact keyword match using regex"""
-    return re.search(rf"\b{re.escape(keyword)}\b", content)
+def matches_query(content, query):
+    """
+    Match ALL words inside a query (AND logic)
+    Applies synonym normalization
+    """
+    words = query.lower().split()
+    normalized_words = [normalize_word(w) for w in words]
+
+    return all(
+        re.search(rf"\b{re.escape(word)}\b", content)
+        for word in normalized_words
+    )
 
 # ===== UI COMPONENTS =====
 class SearchView(discord.ui.View):
@@ -46,17 +68,13 @@ class SearchView(discord.ui.View):
 
         url = f"https://discord.com/channels/{guild_id}/{channel_id}"
 
-        # Link button to forum
         self.add_item(discord.ui.Button(
             label="Ver todas las ofertas",
             style=discord.ButtonStyle.link,
             url=url
         ))
 
-        # Button to show user subscriptions
         self.add_item(MySubsButton())
-
-        # Cancel button (unsubscribe behavior)
         self.add_item(CancelButton(self.user_id, self.keyword))
 
 
@@ -87,7 +105,6 @@ class CancelButton(discord.ui.Button):
         self.keyword = keyword
 
     async def callback(self, interaction: discord.Interaction):
-        # Ensure only the original user can use the button
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message(
                 "No puedes usar este botón",
@@ -96,12 +113,10 @@ class CancelButton(discord.ui.Button):
 
         db = load_db()
 
-        # Remove keyword like unsubscribe
         if self.user_id in db and self.keyword in db[self.user_id]:
             db[self.user_id].remove(self.keyword)
             save_db(db)
 
-            # Edit original message (better UX)
             await interaction.response.edit_message(
                 content=f"🧹 Removiste **{self.keyword}** de tus suscripciones",
                 view=None
@@ -117,11 +132,9 @@ class CancelButton(discord.ui.Button):
 async def on_thread_create(thread):
     print("🔥 THREAD DETECTED:", thread.parent.name)
 
-    # Only process forum threads
     if not isinstance(thread.parent, discord.ForumChannel):
         return
 
-    # Only specific forum
     if thread.parent.name != FORUM_NAME:
         return
 
@@ -133,14 +146,12 @@ async def on_thread_create(thread):
         mentions = set()
         matched = set()
 
-        # Match users based on keywords
-        for user_id, keywords in db.items():
-            for keyword in keywords:
-                if matches(content, keyword):
+        for user_id, queries in db.items():
+            for query in queries:
+                if matches_query(content, query):
                     mentions.add(f"<@{user_id}>")
-                    matched.add(keyword)
+                    matched.add(query)
 
-        # Notify matched users
         if mentions:
             msg = " ".join(mentions)
             msg += f"\n🔎 Coincidencia: {', '.join(matched)}"
@@ -151,7 +162,7 @@ async def on_thread_create(thread):
 
 # ===== SLASH COMMANDS =====
 @tree.command(name="subscribe", description="Subscribe to job alerts")
-@app_commands.describe(keyword="Technology or role (e.g. python, backend)")
+@app_commands.describe(keyword="Example: python junior, js ssr")
 async def subscribe(interaction: discord.Interaction, keyword: str):
     user_id = str(interaction.user.id)
     db = load_db()
@@ -161,13 +172,11 @@ async def subscribe(interaction: discord.Interaction, keyword: str):
 
     keyword = keyword.lower()
 
-    # Add keyword if not already present
     if keyword not in db[user_id]:
         db[user_id].append(keyword)
 
     save_db(db)
 
-    # Create UI view with buttons
     view = SearchView(
         interaction.guild.id,
         JOBS_CHANNEL_ID,
@@ -178,10 +187,13 @@ async def subscribe(interaction: discord.Interaction, keyword: str):
     await interaction.response.send_message(
         f"""✅ {interaction.user.mention} ahora estás suscrito a **{keyword}**
 
-🔔 Se te notificará automáticamente cuando haya nuevas ofertas que coincidan.
+🔔 Se te notificará cuando una oferta contenga **todas** las palabras de esta búsqueda.
 
-💡 Para explorar las ofertas actuales:
-usa la barra de búsqueda dentro del foro `jobs-feed`.
+💡 Ejemplo:
+Si usás `python jr`, también matcheará con `python junior`.
+
+Para explorar las ofertas actuales:
+usa el buscador dentro del foro `jobs-feed`.
 """,
         view=view
     )
