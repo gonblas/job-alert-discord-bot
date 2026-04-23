@@ -1,16 +1,20 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import json
 import os
 import re
+from supabase import create_client
 
 # ===== CONFIG =====
-DB_FILE = "db.json"
 FORUM_NAME = "jobs-feed"
 
 GUILD_ID = int(os.getenv("GUILD_ID"))
 JOBS_CHANNEL_ID = int(os.getenv("JOBS_CHANNEL_ID"))
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ===== INTENTS =====
 intents = discord.Intents.default()
@@ -19,17 +23,6 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
-
-# ===== DATABASE =====
-def load_db():
-    if not os.path.exists(DB_FILE):
-        return {}
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
-
-def save_db(db):
-    with open(DB_FILE, "w") as f:
-        json.dump(db, f)
 
 # ===== SYNONYMS =====
 SYNONYMS = {
@@ -53,6 +46,48 @@ def matches_query(content, query):
         for word in normalized_words
     )
 
+# ===== DB FUNCTIONS =====
+
+def get_user_subs(user_id):
+    res = supabase.table("job_subscriptions") \
+        .select("keyword") \
+        .eq("user_id", user_id) \
+        .execute()
+
+    return [r["keyword"] for r in res.data]
+
+
+def add_subscription(user_id, keyword):
+    try:
+        supabase.table("job_subscriptions").insert({
+            "user_id": user_id,
+            "keyword": keyword
+        }).execute()
+    except Exception:
+        pass  # ya existe
+
+
+def remove_subscription(user_id, keyword):
+    supabase.table("job_subscriptions") \
+        .delete() \
+        .eq("user_id", user_id) \
+        .eq("keyword", keyword) \
+        .execute()
+
+
+def get_all_subscriptions():
+    res = supabase.table("job_subscriptions") \
+        .select("user_id, keyword") \
+        .execute()
+
+    db = {}
+
+    for row in res.data:
+        db.setdefault(row["user_id"], []).append(row["keyword"])
+
+    return db
+
+
 # ===== UI =====
 class SearchView(discord.ui.View):
     def __init__(self, guild_id, channel_id, user_id, keyword):
@@ -70,14 +105,12 @@ class SearchView(discord.ui.View):
         ))
 
         self.add_item(MySubsButton())
-        db = load_db()
-        user_subs = db.get(self.user_id, [])
 
-        try:
+        user_subs = get_user_subs(self.user_id)
+
+        if self.keyword in user_subs:
             index = user_subs.index(self.keyword)
-            self.add_item(CancelButton(self.user_id, index))
-        except ValueError:
-            pass
+            self.add_item(CancelButton(self.user_id, self.keyword))
 
 
 class MySubsButton(discord.ui.Button):
@@ -88,8 +121,7 @@ class MySubsButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        db = load_db()
-        subs = db.get(str(interaction.user.id), [])
+        subs = get_user_subs(str(interaction.user.id))
 
         if not subs:
             return await interaction.response.send_message(
@@ -109,47 +141,25 @@ class MySubsButton(discord.ui.Button):
 
 
 class CancelButton(discord.ui.Button):
-    def __init__(self, user_id, index):
+    def __init__(self, user_id, keyword):
         super().__init__(
             label="Eliminar esta alerta",
             style=discord.ButtonStyle.danger
         )
         self.user_id = str(user_id)
-        self.index = index  # index of the subscription
+        self.keyword = keyword
 
     async def callback(self, interaction: discord.Interaction):
-        # Security: only the original user can press the button
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message(
                 "No podés usar este botón",
                 ephemeral=True
             )
 
-        db = load_db()
+        remove_subscription(self.user_id, self.keyword)
 
-        # Check if user has subscriptions
-        if self.user_id not in db or not db[self.user_id]:
-            return await interaction.response.send_message(
-                "No tenés suscripciones",
-                ephemeral=True
-            )
-
-        subs = db[self.user_id]
-
-        # Validate index (important)
-        if self.index < 0 or self.index >= len(subs):
-            return await interaction.response.send_message(
-                "Esa alerta ya no existe",
-                ephemeral=True
-            )
-
-        # Remove subscription
-        removed = subs.pop(self.index)
-        save_db(db)
-
-        # Edit original message (clean UX)
         await interaction.response.edit_message(
-            content=f"🧹 Eliminaste **[{', '.join(removed.split())}]**",
+            content=f"🧹 Eliminaste **[{', '.join(self.keyword.split())}]**",
             view=None
         )
 
@@ -157,8 +167,6 @@ class CancelButton(discord.ui.Button):
 # ===== EVENT =====
 @bot.event
 async def on_thread_create(thread):
-    print("🔥 THREAD DETECTED:", thread.parent.name)
-
     if not isinstance(thread.parent, discord.ForumChannel):
         return
 
@@ -169,7 +177,8 @@ async def on_thread_create(thread):
         starter_message = await thread.fetch_message(thread.id)
         content = starter_message.content.lower()
 
-        db = load_db()
+        db = get_all_subscriptions()
+
         mentions = set()
         matched = set()
 
@@ -187,22 +196,14 @@ async def on_thread_create(thread):
     except Exception as e:
         print("Error:", e)
 
+
 # ===== COMMANDS =====
 @tree.command(name="subscribe", description="Suscribite a alertas de trabajo")
-@app_commands.describe(keyword="Ej: python junior, js ssr")
 async def subscribe(interaction: discord.Interaction, keyword: str):
     user_id = str(interaction.user.id)
-    db = load_db()
-
-    if user_id not in db:
-        db[user_id] = []
-
     keyword = keyword.lower()
 
-    if keyword not in db[user_id]:
-        db[user_id].append(keyword)
-
-    save_db(db)
+    add_subscription(user_id, keyword)
 
     view = SearchView(
         interaction.guild.id,
@@ -212,51 +213,39 @@ async def subscribe(interaction: discord.Interaction, keyword: str):
     )
 
     await interaction.response.send_message(
-        f"""✅ {interaction.user.mention} ahora estás suscrito a **{keyword}**
-
-🔔 Vas a recibir alertas cuando una oferta contenga TODAS esas palabras.
-
-💡 Ejemplo:
-`python jr` también matchea con `python junior`
-
-Usá el buscador del foro `jobs-feed` para ver ofertas actuales.
-""",
+        f"✅ {interaction.user.mention} suscripto a **{keyword}**",
         view=view
     )
 
 
-@tree.command(name="unsubscribe", description="Eliminar una alerta por número")
-@app_commands.describe(index="Número de la alerta (ver con /mysubs)")
+@tree.command(name="unsubscribe", description="Eliminar una alerta")
 async def unsubscribe(interaction: discord.Interaction, index: int):
-    await interaction.response.defer(ephemeral=True)
+    subs = get_user_subs(str(interaction.user.id))
 
-    user_id = str(interaction.user.id)
-    db = load_db()
-
-    if user_id not in db or not db[user_id]:
-        return await interaction.followup.send(
-            "No tenés suscripciones"
+    if not subs:
+        return await interaction.response.send_message(
+            "No tenés suscripciones",
+            ephemeral=True
         )
-
-    subs = db[user_id]
 
     if index < 1 or index > len(subs):
-        return await interaction.followup.send(
-            "Número inválido"
+        return await interaction.response.send_message(
+            "Número inválido",
+            ephemeral=True
         )
 
-    removed = subs.pop(index - 1)
-    save_db(db)
+    keyword = subs[index - 1]
+    remove_subscription(str(interaction.user.id), keyword)
 
-    await interaction.followup.send(
-        f"🧹 Eliminaste **[{', '.join(removed.split())}]**"
+    await interaction.response.send_message(
+        f"🧹 Eliminaste **[{', '.join(keyword.split())}]**",
+        ephemeral=True
     )
 
 
 @tree.command(name="mysubs", description="Ver tus suscripciones")
 async def mysubs(interaction: discord.Interaction):
-    db = load_db()
-    subs = db.get(str(interaction.user.id), [])
+    subs = get_user_subs(str(interaction.user.id))
 
     if not subs:
         return await interaction.response.send_message(
@@ -270,30 +259,20 @@ async def mysubs(interaction: discord.Interaction):
     )
 
     await interaction.response.send_message(
-        f"📌 **Tu lista de alertas es:**\n{formatted}\n\n❌ Para eliminar: `/unsubscribe <número>`",
+        f"📌 **Tus alertas:**\n{formatted}",
         ephemeral=True
     )
 
-# ===== DEBUG =====
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-
-    print("📩", message.content)
-    await bot.process_commands(message)
 
 # ===== READY =====
 @bot.event
 async def on_ready():
     guild = discord.Object(id=GUILD_ID)
     tree.copy_global_to(guild=guild)
-    tree.clear_commands(guild=None)
-    await tree.sync(guild=None)
-    synced = await tree.sync(guild=guild)
-    
-    print(f"Sincronizados {len(synced)} comandos en el servidor")
+    await tree.sync(guild=guild)
+
     print(f"Bot conectado como {bot.user}")
+
 
 # ===== RUN =====
 bot.run(os.getenv("DISCORD_TOKEN"))
