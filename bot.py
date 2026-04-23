@@ -64,7 +64,7 @@ def add_subscription(user_id, keyword):
             "keyword": keyword
         }).execute()
     except Exception:
-        pass  # ya existe
+        pass
 
 
 def remove_subscription(user_id, keyword):
@@ -109,7 +109,6 @@ class SearchView(discord.ui.View):
         user_subs = get_user_subs(self.user_id)
 
         if self.keyword in user_subs:
-            index = user_subs.index(self.keyword)
             self.add_item(CancelButton(self.user_id, self.keyword))
 
 
@@ -130,7 +129,7 @@ class MySubsButton(discord.ui.Button):
             )
 
         formatted = "\n".join(
-            f"{i+1}. [{', '.join(sub.split())}]"
+            f"{i+1}. {', '.join(sub.split())}"
             for i, sub in enumerate(subs)
         )
 
@@ -158,9 +157,9 @@ class CancelButton(discord.ui.Button):
 
         remove_subscription(self.user_id, self.keyword)
 
-        await interaction.response.edit_message(
-            content=f"🧹 Eliminaste **[{', '.join(self.keyword.split())}]**",
-            view=None
+        await interaction.response.send_message(
+            f"🧹 Eliminaste **{self.keyword}**",
+            ephemeral=True
         )
 
 
@@ -179,19 +178,28 @@ async def on_thread_create(thread):
 
         db = get_all_subscriptions()
 
-        mentions = set()
-        matched = set()
+        matches = {}
 
         for user_id, queries in db.items():
             for query in queries:
                 if matches_query(content, query):
-                    mentions.add(f"<@{user_id}>")
-                    matched.add(query)
+                    matches.setdefault(user_id, []).append(query)
 
-        if mentions:
-            msg = " ".join(mentions)
-            msg += f"\n🔎 Coincidencias: {', '.join(matched)}"
-            await thread.send(msg)
+        # 🔔 ENVIAR DM EN VEZ DE THREAD PUBLICO
+        for user_id, queries in matches.items():
+            try:
+                user = await bot.fetch_user(int(user_id))
+
+                msg = (
+                    "🔔 **Nueva oferta encontrada**\n\n"
+                    f"📌 Coincidencias: {', '.join(set(queries))}\n\n"
+                    f"🔗 {thread.jump_url}"
+                )
+
+                await user.send(msg)
+
+            except Exception as e:
+                print(f"Error enviando DM a {user_id}: {e}")
 
     except Exception as e:
         print("Error:", e)
@@ -213,8 +221,9 @@ async def subscribe(interaction: discord.Interaction, keyword: str):
     )
 
     await interaction.response.send_message(
-        f"✅ {interaction.user.mention} suscripto a **{keyword}**",
-        view=view
+        f"✅ Suscripto a **{keyword}**",
+        view=view,
+        ephemeral=True
     )
 
 
@@ -238,7 +247,7 @@ async def unsubscribe(interaction: discord.Interaction, index: int):
     remove_subscription(str(interaction.user.id), keyword)
 
     await interaction.response.send_message(
-        f"🧹 Eliminaste **[{', '.join(keyword.split())}]**",
+        f"🧹 Eliminaste **{keyword}**",
         ephemeral=True
     )
 
@@ -254,7 +263,7 @@ async def mysubs(interaction: discord.Interaction):
         )
 
     formatted = "\n".join(
-        f"{i+1}. [{', '.join(sub.split())}]"
+        f"{i+1}. {', '.join(sub.split())}"
         for i, sub in enumerate(subs)
     )
 
